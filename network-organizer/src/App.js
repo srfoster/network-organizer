@@ -18,7 +18,8 @@ function App() {
   <React.StrictMode>
     <Neo4jProvider >
     <Container maxWidth="md">
-      <People />
+      <PeopleCollection />
+      <OrganizationCollection />
       <br/>
     </Container>
     </Neo4jProvider>
@@ -26,89 +27,8 @@ function App() {
   );
 }
 
-function People() {
-    const [results, setResults] = React.useState([])
-    const [lastRequest, setLastRequest] = React.useState(undefined)
-    const [selectedPerson, setSelectedPerson] = React.useState(undefined)
 
-    const query = `MATCH (m:Person) RETURN m`
-    const params = {} //{ last: 'Foster' }
-    const resultState = useReadCypher(query, params)
-
-    React.useEffect(() => {
-        console.log('Person effect')
-
-        resultState.run().
-          then((result) => {
-            console.log(result)
-            setResults(result.records)
-          })
-          .catch((error) => {
-            console.error(error)
-            setResults({error: resultState.error})
-          })
-    }, [lastRequest])
-
-
-    let refresh = () => setLastRequest(new Date())
-
-    return (
-      <Card>
-        <CardHeader title="People" />
-        <CardContent>
-          <Grid container spacing={2}>
-            <Grid item xs={6}>
-              {results.map((r) => {
-                let p = r.get('m')
-                return <div style={{cursor: "pointer"}} onClick={()=>setSelectedPerson(p)} key={p.identity.low}>
-                  {p.properties.first} {p.properties.last}
-                </div>
-              })}
-            </Grid>
-            <Grid item xs={6}>
-              {selectedPerson && <PersonCard person={selectedPerson} />}
-            </Grid>
-          </Grid>
-        </CardContent>
-        <CardActions>
-          <AddPerson onAdd={refresh} />
-        </CardActions>
-      </Card>
-    )
-}
-
-function PersonCard(props){
-    const [results, setResults] = React.useState([])
-    const [lastRequest, setLastRequest] = React.useState(undefined)
-    const query = `MATCH (m:Person)-[link]->(other) WHERE ID(m) = $id RETURN link, other`
-    const resultState = useReadCypher(query)
-
-    React.useEffect(() => {
-        const params = {id: props.person.identity.low} 
-
-        resultState.run(params).
-          then((result) => {
-            console.log(result)
-            setResults(result.records)
-          })
-          .catch((error) => {
-            console.error(error)
-            setResults({error: resultState.error})
-          })
-    }, [lastRequest, props.person])
-
-  return <Card>
-    <CardHeader title={ <NodeChip node={props.person} />} />
-    <CardContent>
-      <ul>{results.map((r) => {
-        return <li key={r.get('other').identity.low}>
-          <LinkChip link={r.get('link')} />
-          <NodeChip node={r.get('other')} />
-        </li>
-      })}</ul>
-    </CardContent>
-  </Card>
-}
+//Generic
 
 function NodeChip(props){
   return <Chip label={props.node.labels.join(" ") + " " + Object.keys(props.node.properties).map((p)=>(p + ":" + props.node.properties[p])).join(" ")} />
@@ -117,6 +37,130 @@ function NodeChip(props){
 function LinkChip(props){
   return <Chip label={props.link.type} />
 }
+
+
+function QueryComponent(props){
+    const [results, setResults] = React.useState([])
+    const [lastRequest, setLastRequest] = React.useState(undefined)
+
+    const query = props.query 
+    const resultState = props.cypherFunction(query)
+
+    React.useEffect(() => {
+        resultState.run(props.params || {}).
+          then((result) => {
+            console.log(result)
+            setResults(result.records)
+          })
+          .catch((error) => {
+            console.error(error)
+            setResults({error: resultState.error})
+          })
+    }, [lastRequest, JSON.stringify(props.params)])
+
+    let refresh = () => setLastRequest(new Date())
+
+    return (
+      props.children(results, refresh)
+    )
+}
+
+function NodeTextItem(props){
+  let type = props.type
+
+  if(type == "Person"){
+    return <>{props.node.properties.first} {props.node.properties.last}</>
+  } else if(type == "Organization"){
+    return <>{props.node.properties.name}</>
+  } else return <>{JSON.stringify(props.node.properties)}</>
+}
+
+function CollectionComponent(props){
+    const [selectedResult, setSelectedResult] = React.useState(undefined)
+
+    return <Card>
+              <CardHeader title={props.title} />
+              <CardContent>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    {props.results.map((r) => {
+                      let p = r.get('m')
+                      return <div style={{ cursor: "pointer" }} onClick={() => setSelectedResult(p)} key={p.identity.low}>
+                        <NodeTextItem node={p} type={props.type} />
+                      </div>
+                    })}
+                  </Grid>
+                  <Grid item xs={6}>
+                    {selectedResult && <NodeCard node={selectedResult} />}
+                  </Grid>
+                </Grid>
+              </CardContent>
+              <CardActions>
+                <AddPerson onAdd={props.refresh} />
+              </CardActions>
+            </Card>
+}
+
+function NodeCard(props) {
+  return <QueryComponent query={`MATCH (m:Person)-[link]->(other) WHERE ID(m) = $id 
+                                 RETURN link, other`}
+                         params={{ id: props.node.identity.low }}
+    cypherFunction={useReadCypher} >
+    {(results, refresh) =>
+      <QueryComponent query={`MATCH (m:Person)<-[link]-(other) WHERE ID(m) = $id 
+                                    RETURN link, other`}
+                      params={{ id: props.node.identity.low }}
+        cypherFunction={useReadCypher} >
+        {(results2, refresh2) =>
+          <Card>
+            <CardHeader title={<NodeChip node={props.node} />} />
+            <CardContent>
+              <ul>{results.map((r) => {
+                return <li key={r.get('other').identity.low}>
+                  <LinkChip link={r.get('link')} />
+                  <NodeChip node={r.get('other')} />
+                </li>
+              })}</ul>
+              <ul>{results2.map((r) => {
+                return <li key={r.get('other').identity.low}>
+                  <NodeChip node={r.get('other')} />
+                  <LinkChip link={r.get('link')} />
+                </li>
+              })}</ul>
+            </CardContent>
+          </Card>}
+      </QueryComponent>}
+  </QueryComponent>
+}
+
+
+//Specific
+
+function PeopleCollection() {
+
+  return <QueryComponent query={`MATCH (m:Person) RETURN m`}
+                         cypherFunction={useReadCypher}
+                         >
+            {(results, refresh) => <CollectionComponent results={results} 
+                                                        refresh={refresh} 
+                                                        title="People"
+                                                        type="Person"
+                                                        />}
+  </QueryComponent>
+}
+
+function OrganizationCollection() {
+
+  return <QueryComponent query={`MATCH (m:Organization) RETURN m`}
+                         cypherFunction={useReadCypher} >
+            {(results, refresh) => <CollectionComponent results={results} 
+                                                        refresh={refresh} 
+                                                        title="Organizations" 
+                                                        type="Organization" 
+                                                        />}
+  </QueryComponent>
+}
+
 
 function AddPerson(props) {
     const [results, setResults] = React.useState([])
