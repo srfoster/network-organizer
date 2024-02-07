@@ -8,7 +8,8 @@ import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Container from '@mui/material/Container';
 import CardHeader from '@mui/material/CardHeader';
-import { Chip } from '@mui/material';
+import CardActions from '@mui/material/CardActions';
+import { Chip, Grid } from '@mui/material';
 
 const driver = createDriver('bolt', 'localhost', 7687, 'neo4j', 'Nimzovich101')
 
@@ -19,7 +20,6 @@ function App() {
     <Container maxWidth="md">
       <People />
       <br/>
-      <AddPerson />
     </Container>
     </Neo4jProvider>
   </React.StrictMode>
@@ -50,27 +50,34 @@ function People() {
     }, [lastRequest])
 
 
+    let refresh = () => setLastRequest(new Date())
+
     return (
       <Card>
         <CardHeader title="People" />
         <CardContent>
-          {results.map((r) => {
-            let p = r.get('m')
-            return <div style={{cursor: "pointer"}} onClick={()=>setSelectedPerson(p)} key={p.identity.low}>
-              {p.properties.first} {p.properties.last}
-            </div>
-          })}
-          <Button onClick={() => {
-            setLastRequest(new Date())
-          }}>Refresh</Button>
-          <br/>
-          {selectedPerson && <Person person={selectedPerson}/>}
+          <Grid container spacing={2}>
+            <Grid item xs={6}>
+              {results.map((r) => {
+                let p = r.get('m')
+                return <div style={{cursor: "pointer"}} onClick={()=>setSelectedPerson(p)} key={p.identity.low}>
+                  {p.properties.first} {p.properties.last}
+                </div>
+              })}
+            </Grid>
+            <Grid item xs={6}>
+              {selectedPerson && <PersonCard person={selectedPerson} />}
+            </Grid>
+          </Grid>
         </CardContent>
+        <CardActions>
+          <AddPerson onAdd={refresh} />
+        </CardActions>
       </Card>
     )
 }
 
-function Person(props){
+function PersonCard(props){
     const [results, setResults] = React.useState([])
     const [lastRequest, setLastRequest] = React.useState(undefined)
     const query = `MATCH (m:Person)-[link]->(other) WHERE ID(m) = $id RETURN link, other`
@@ -90,15 +97,17 @@ function Person(props){
           })
     }, [lastRequest, props.person])
 
-  return <>
-    <NodeChip node={props.person} />
-    <ul>{results.map((r)=>{
-      return <li key={r.get('other').identity.low}>
-        <LinkChip link={r.get('link')} />  
-        <NodeChip node={r.get('other')} />
-      </li>
-    })}</ul>  
-  </>
+  return <Card>
+    <CardHeader title={ <NodeChip node={props.person} />} />
+    <CardContent>
+      <ul>{results.map((r) => {
+        return <li key={r.get('other').identity.low}>
+          <LinkChip link={r.get('link')} />
+          <NodeChip node={r.get('other')} />
+        </li>
+      })}</ul>
+    </CardContent>
+  </Card>
 }
 
 function NodeChip(props){
@@ -109,7 +118,7 @@ function LinkChip(props){
   return <Chip label={props.link.type} />
 }
 
-function AddPerson() {
+function AddPerson(props) {
     const [results, setResults] = React.useState([])
     const [last,  setLast ] = React.useState(undefined)
     const [first, setFirst] = React.useState(undefined)
@@ -124,6 +133,7 @@ function AddPerson() {
           then((result) => {
             console.log(result)
             setResults(result.records)
+            props.onAdd(result.first)
           })
           .catch((error) => {
             console.error(error)
@@ -133,16 +143,13 @@ function AddPerson() {
 
 
     return (
-      <Card>
-        <CardHeader title="Add Person" />
-        <CardContent>
-          <TextField id="outlined-basic" label="Outlined" variant="outlined" 
+        <>
+          <TextField id="outlined-basic" label="First" variant="outlined" 
             value={first} onChange={(e) => setFirst(e.target.value)} />
-          <TextField id="outlined-basic" label="Outlined" variant="outlined" 
+          <TextField id="outlined-basic" label="Last" variant="outlined" 
             value={last} onChange={(e) => setLast(e.target.value)} />
           <Button onClick={submit}>Submit</Button>
-        </CardContent>
-      </Card>
+        </>
     )
 }
 
