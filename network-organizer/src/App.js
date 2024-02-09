@@ -74,15 +74,18 @@ function AddNode(props) {
     )
 }
 
-function FieldsForType(props){
-  let fields = properties[props.type]
+function FieldsForType({type, params, setParams}) {
+  let fields = properties[type]
   return <div>
     {Object.keys(fields).map((f) => {
-      return <TextField key={f} label={f} onChange={(e) => {
-        let newParams = {...props.params}
-        newParams[f] = e.target.value
-        props.setParams(newParams)
-      }} />
+      return <TextField key={f} label={f}
+        variant={"standard"}
+        value={params && params[f]}
+        onChange={(e) => {
+          let newParams = { ...params }
+          newParams[f] = e.target.value
+          setParams(newParams)
+        }} />
     })}
   </div>
 }
@@ -102,12 +105,14 @@ function QueryComponent(props){
     const query = props.query 
     const resultState = props.cypherFunction(query)
 
-    let refresh = () => {
+    let refresh = (callback) => {
+        console.log("Running query", query, "with params", props.params || "none")
         resultState.run(props.params || {}).
           then((result) => {
             console.log(result)
             setResults(result.records)
             props.onRefresh && props.onRefresh()
+            callback && callback()
           })
           .catch((error) => {
             console.error(error)
@@ -147,15 +152,15 @@ function CollectionCard({title, type}) {
         <CardContent>
           <Grid container spacing={2}>
             <Grid item xs={6}>
-              {results.map((r) => {
+              {results.map((r, i) => {
                 let p = r.get('m')
-                return <div style={{ cursor: "pointer" }} onClick={() => setSelectedResult(p)} key={p.identity.low}>
+                return <div style={{ cursor: "pointer" }} onClick={() => setSelectedResult(i)} key={p.identity.low}>
                   <NodeTextItem node={p} type={type} />
                 </div>
               })}
             </Grid>
             <Grid item xs={6}>
-              {selectedResult && <NodeCard node={selectedResult} />}
+              {selectedResult !== undefined ? <NodeCard node={results[selectedResult].get('m')} onEdit={refresh} /> : ""}
             </Grid>
           </Grid>
         </CardContent>
@@ -166,20 +171,22 @@ function CollectionCard({title, type}) {
   </QueryComponent>
 }
 
-function NodeCard(props) {
+function NodeCard({node, onEdit}) {
+  console.log("NodeCard", node  )
   return <QueryComponent query={`MATCH (m:Person)-[link]->(other) WHERE ID(m) = $id 
                                  RETURN link, other`}
-                         params={{ id: props.node.identity.low }}
+                         params={{ id: node.identity.low }}
     cypherFunction={useReadCypher} >
     {(results, refresh) =>
       <QueryComponent query={`MATCH (m:Person)<-[link]-(other) WHERE ID(m) = $id 
                                     RETURN link, other`}
-                      params={{ id: props.node.identity.low }}
+                      params={{ id: node.identity.low }}
         cypherFunction={useReadCypher} >
         {(results2, refresh2) =>
           <Card>
-            <CardHeader title={<NodeChip node={props.node} />} />
+            <CardHeader title={<NodeChip node={node} />} />
             <CardContent>
+              <EditNodeProperties node={node} onEdit={()=>{onEdit()}} />
               <ul>{results.map((r) => {
                 return <li key={r.get('other').identity.low}>
                   <LinkChip link={r.get('link')} />
@@ -198,6 +205,31 @@ function NodeCard(props) {
   </QueryComponent>
 }
 
+function EditNodeProperties(props){
+  let params = props.node.properties
+  let [newParams, setNewParams] = React.useState(params)
+
+  React.useEffect(() => {
+    setNewParams(props.node.properties)
+  }, [props.node.properties])
+
+  return <>
+    <QueryComponent
+          query={`MATCH (m) WHERE ID(m) = ${props.node.identity.low} SET m = ${propertiesToCypherBindings(params)} RETURN m`}
+          params={newParams}
+          cypherFunction={useWriteCypher}
+        >
+      {(results, refresh) => <><FieldsForType
+        type={props.node.labels[0]}
+        params={newParams}
+        setParams={setNewParams} />
+        <Button onClick={()=>{refresh(props.onEdit)}}>Save</Button>
+      </>
+      }
+
+    </QueryComponent>
+  </>
+}
 
 
 export default App;
