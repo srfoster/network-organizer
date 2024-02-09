@@ -41,24 +41,29 @@ function LinkChip(props){
 
 function QueryComponent(props){
     const [results, setResults] = React.useState([])
-    const [lastRequest, setLastRequest] = React.useState(undefined)
+    // const [lastRequest, setLastRequest] = React.useState(undefined)
 
     const query = props.query 
     const resultState = props.cypherFunction(query)
 
-    React.useEffect(() => {
+    let refresh = () => {
         resultState.run(props.params || {}).
           then((result) => {
             console.log(result)
             setResults(result.records)
+            props.onRefresh && props.onRefresh()
           })
           .catch((error) => {
             console.error(error)
             setResults({error: resultState.error})
           })
-    }, [lastRequest, JSON.stringify(props.params)])
+    }
 
-    let refresh = () => setLastRequest(new Date())
+    React.useEffect(() => {
+      if(props.cypherFunction == useReadCypher){
+        refresh()
+      }
+    }, [JSON.stringify(props.params)])
 
     return (
       props.children(results, refresh)
@@ -96,7 +101,7 @@ function CollectionComponent(props){
                 </Grid>
               </CardContent>
               <CardActions>
-                <AddPerson onAdd={props.refresh} />
+                <AddNode type={props.type} onAdd={props.refresh} />
               </CardActions>
             </Card>
 }
@@ -161,40 +166,53 @@ function OrganizationCollection() {
   </QueryComponent>
 }
 
+let properties = {
+  Person: {
+    first: "string",
+    last: "string"
+  },
+  Organization: {
+    name: "string"
+  }
+}
 
-function AddPerson(props) {
-    const [results, setResults] = React.useState([])
-    const [last,  setLast ] = React.useState(undefined)
-    const [first, setFirst] = React.useState(undefined)
+function propertiesToCypherBindings(properties){
+  return "{" + Object.keys(properties).map((k) => {
+    return k + ": $" + k
+  }).join(", ") + "}"
+}
 
-    const query = `MERGE (m:Person {first: $first, last: $last}) RETURN m`
-    const resultState = useWriteCypher(query)
-
-    let submit = () => {
-        const params = {first: first, last: last }
-
-        resultState.run(params).
-          then((result) => {
-            console.log(result)
-            setResults(result.records)
-            props.onAdd(result.first)
-          })
-          .catch((error) => {
-            console.error(error)
-            setResults({error: resultState.error})
-          })
-    }
-
+function AddNode(props) {
+    const [params,  setParams ] = React.useState(undefined)
 
     return (
-        <>
-          <TextField id="outlined-basic" label="First" variant="outlined" 
-            value={first} onChange={(e) => setFirst(e.target.value)} />
-          <TextField id="outlined-basic" label="Last" variant="outlined" 
-            value={last} onChange={(e) => setLast(e.target.value)} />
-          <Button onClick={submit}>Submit</Button>
-        </>
+        <QueryComponent
+          query={`MERGE (m:${props.type} ${propertiesToCypherBindings(properties[props.type])}) RETURN m`}
+          params={params}
+          cypherFunction={useWriteCypher}
+          onRefresh={props.onAdd}
+        >
+          {(results, refresh) =>
+          <>
+            {<FieldsForType type={props.type} params={params} setParams={setParams} />}
+            <Button onClick={()=>{refresh();}}>Submit</Button>
+          </>
+          }
+        </QueryComponent>
     )
+}
+
+function FieldsForType(props){
+  let fields = properties[props.type]
+  return <div>
+    {Object.keys(fields).map((f) => {
+      return <TextField key={f} label={f} onChange={(e) => {
+        let newParams = {...props.params}
+        newParams[f] = e.target.value
+        props.setParams(newParams)
+      }} />
+    })}
+  </div>
 }
 
 export default App;
