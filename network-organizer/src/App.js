@@ -91,7 +91,7 @@ function FieldsForType({type, params, setParams}) {
 }
 
 function NodeChip(props){
-  return <Chip label={props.node.labels.join(" ") + " " + Object.keys(props.node.properties).map((p)=>(p + ":" + props.node.properties[p])).join(" ")} />
+  return <Chip label={props.node.identity.low + ": " + props.node.labels.join(" ") + " " + Object.keys(props.node.properties).map((p)=>(p + ":" + props.node.properties[p])).join(" ")} />
 }
 
 function LinkChip(props){
@@ -110,7 +110,16 @@ function QueryComponent(props){
         resultState.run(props.params || {}).
           then((result) => {
             console.log(result)
-            setResults(result.records)
+            setResults(result.records.map((r) => {
+              let oldGet = r.get 
+              let time = new Date()
+              r.get = (key) => {
+                let v = oldGet.bind(r)(key)
+                v.loadedAt = time
+                return v
+              }
+              return r
+            }))
             props.onRefresh && props.onRefresh()
             callback && callback()
           })
@@ -124,7 +133,7 @@ function QueryComponent(props){
       if(props.cypherFunction == useReadCypher){
         refresh()
       }
-    }, [JSON.stringify(props.params)])
+    }, [JSON.stringify(props.params), (props.refreshOnChange && props.refreshOnChange.loadedAt)])
 
     return (
       props.children(results, refresh)
@@ -172,21 +181,66 @@ function CollectionCard({title, type}) {
 }
 
 function NodeCard({node, onEdit}) {
-  console.log("NodeCard", node  )
+  return <Card>
+            <CardHeader title={<NodeChip node={node} />} />
+            <CardContent>
+              {/* node.loadedAt.toString() */}
+              <EditNodeProperties node={node} onEdit={onEdit} />
+              <NodeLinks node={node} />
+              <AddLinkToNode node={node} onAdd={onEdit} />
+            </CardContent>
+          </Card>
+}
+
+function AddLinkToNode(props){
+  const [otherId, setOtherId] = React.useState(undefined)
+  const [linkType, setLinkType] = React.useState(undefined)
+
+  return (
+    <QueryComponent
+      query={`MATCH (m) WHERE ID(m) = ${props.node.identity.low} 
+             MATCH (n) WHERE ID(n) = ${otherId}
+             MERGE (m)-[link:${linkType}]->(n) RETURN link`}
+      params={{}}
+      cypherFunction={useWriteCypher}
+      onRefresh={props.onAdd}
+    >
+      {(results, refresh) =>
+      <>
+        <TextField label="Link Type"
+          variant={"standard"}
+          value={linkType}
+          onChange={(e) => {
+            setLinkType(e.target.value)
+          }} />
+        <TextField label="Other Node ID"
+          variant={"standard"}
+          value={otherId}
+          onChange={(e) => {
+            setOtherId(e.target.value)
+          }} />
+        <Button onClick={()=>{refresh();}}>Submit</Button>
+      </>
+      }
+    </QueryComponent>
+  )
+}
+
+
+function NodeLinks({node}){
   return <QueryComponent query={`MATCH (m:Person)-[link]->(other) WHERE ID(m) = $id 
                                  RETURN link, other`}
                          params={{ id: node.identity.low }}
+                         refreshOnChange={node}
     cypherFunction={useReadCypher} >
     {(results, refresh) =>
       <QueryComponent query={`MATCH (m:Person)<-[link]-(other) WHERE ID(m) = $id 
                                     RETURN link, other`}
                       params={{ id: node.identity.low }}
+                      refreshOnChange={node}
         cypherFunction={useReadCypher} >
         {(results2, refresh2) =>
-          <Card>
-            <CardHeader title={<NodeChip node={node} />} />
-            <CardContent>
-              <EditNodeProperties node={node} onEdit={()=>{onEdit()}} />
+             <>
               <ul>{results.map((r) => {
                 return <li key={r.get('other').identity.low}>
                   <LinkChip link={r.get('link')} />
@@ -199,8 +253,7 @@ function NodeCard({node, onEdit}) {
                   <LinkChip link={r.get('link')} />
                 </li>
               })}</ul>
-            </CardContent>
-          </Card>}
+          </>}
       </QueryComponent>}
   </QueryComponent>
 }
