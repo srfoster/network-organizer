@@ -9,7 +9,8 @@ import CardContent from '@mui/material/CardContent';
 import Container from '@mui/material/Container';
 import CardHeader from '@mui/material/CardHeader';
 import CardActions from '@mui/material/CardActions';
-import { Chip, Grid } from '@mui/material';
+import { Avatar, Chip, Grid, Stack, Divider } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 
 const driver = createDriver('bolt', 'localhost', 7687, 'neo4j', 'Nimzovich101')
 
@@ -91,13 +92,48 @@ function FieldsForType({type, params, setParams}) {
 }
 
 function NodeChip(props){
-  return <Chip label={props.node.identity.low + ": " + props.node.labels.join(" ") + " " + Object.keys(props.node.properties).map((p)=>(p + ":" + props.node.properties[p])).join(" ")} />
+  return <Chip 
+    avatar={<NodeAvatar node={props.node} />}
+    label={<NodeTextItem node={props.node} />} />
 }
 
 function LinkChip(props){
-  return <Chip label={props.link.type} />
+  return <Stack direction="row">
+    {props.from && <NodeChip node={props.from}/>} 
+    <Divider orientation="vertical" variant="middle" flexItem />
+    <Chip label={props.link.type} 
+      onDelete={()=>{}}
+      variant="outlined"
+      deleteIcon={<DeleteLink link={props.link} onDelete={props.onDelete} />}
+      />
+    <Divider orientation="vertical" variant="middle" flexItem />
+    {props.to && <NodeChip node={props.to} />}
+  </Stack> 
 }
 
+function NodeAvatar({node}){
+  function stringToColor(string) {
+    let hash = 0;
+    let i;
+  
+    /* eslint-disable no-bitwise */
+    for (i = 0; i < string.length; i += 1) {
+      hash = string.charCodeAt(i) + ((hash << 5) - hash);
+    }
+  
+    let color = '#';
+  
+    for (i = 0; i < 3; i += 1) {
+      const value = (hash >> (i * 8)) & 0xff;
+      color += `00${value.toString(16)}`.slice(-2);
+    }
+    /* eslint-enable no-bitwise */
+  
+    return color;
+  }
+
+  return <Avatar sx={{width: 24, height: 24, bgcolor: stringToColor(node.labels[0])}}>{node.identity.low}</Avatar> 
+}
 
 function QueryComponent(props){
     const [results, setResults] = React.useState([])
@@ -109,17 +145,19 @@ function QueryComponent(props){
         console.log("Running query", query, "with params", props.params || "none")
         resultState.run(props.params || {}).
           then((result) => {
-            console.log(result)
-            setResults(result.records.map((r) => {
-              let oldGet = r.get 
-              let time = new Date()
-              r.get = (key) => {
-                let v = oldGet.bind(r)(key)
-                v.loadedAt = time
-                return v
-              }
-              return r
-            }))
+            console.log("Query result", result)
+            if(result && result.records){
+              setResults(result.records.map((r) => {
+                let oldGet = r.get 
+                let time = new Date()
+                r.get = (key) => {
+                  let v = oldGet.bind(r)(key)
+                  v.loadedAt = time
+                  return v
+                }
+                return r
+              }))
+            }
             props.onRefresh && props.onRefresh()
             callback && callback()
           })
@@ -130,7 +168,7 @@ function QueryComponent(props){
     }
 
     React.useEffect(() => {
-      if(props.cypherFunction == useReadCypher){
+      if(props.cypherFunction == useReadCypher || props.dangerousWriteRefresh){
         refresh()
       }
     }, [JSON.stringify(props.params), (props.refreshOnChange && props.refreshOnChange.loadedAt)])
@@ -141,7 +179,7 @@ function QueryComponent(props){
 }
 
 function NodeTextItem(props){
-  let type = props.type
+  let type = props.type || props.node.labels[0]
 
   if(type == "Person"){
     return <>{props.node.properties.first} {props.node.properties.last}</>
@@ -193,13 +231,13 @@ function NodeCard({node, onEdit}) {
 }
 
 function AddLinkToNode(props){
-  const [otherId, setOtherId] = React.useState(undefined)
+  const [other, setOther] = React.useState(undefined)
   const [linkType, setLinkType] = React.useState(undefined)
 
   return (
     <QueryComponent
       query={`MATCH (m) WHERE ID(m) = ${props.node.identity.low} 
-             MATCH (n) WHERE ID(n) = ${otherId}
+             MATCH (n) WHERE ID(n) = ${other && other.identity.low}
              MERGE (m)-[link:${linkType}]->(n) RETURN link`}
       params={{}}
       cypherFunction={useWriteCypher}
@@ -213,19 +251,37 @@ function AddLinkToNode(props){
           onChange={(e) => {
             setLinkType(e.target.value)
           }} />
-        <TextField label="Other Node ID"
-          variant={"standard"}
-          value={otherId}
-          onChange={(e) => {
-            setOtherId(e.target.value)
-          }} />
-        <Button onClick={()=>{refresh();}}>Submit</Button>
+        <NodeSearchSelect 
+          type="Organization"
+          onSelect={(node) => { 
+          setOther(node)
+        }} />
+        {<Button onClick={()=>{refresh();}}>Submit {other && other.identity.low + " " + other.loadedAt}</Button>}
       </>
       }
     </QueryComponent>
   )
 }
 
+function NodeSearchSelect(props){
+ return <QueryComponent
+      query={`MATCH (m:${props.type}) RETURN m`}
+      params={{}}
+      cypherFunction={useReadCypher}
+    >
+      {(results, refresh) =>
+      <>
+        <ul>
+          {results.map((r) => {
+            return <li key={r.get('m').identity.low} style={{ cursor: "pointer" }} onClick={() => props.onSelect(r.get('m'))}>
+              <NodeChip node={r.get('m')} />
+            </li>
+          })}
+        </ul>
+      </>
+      }
+    </QueryComponent>
+}
 
 function NodeLinks({node}){
   return <QueryComponent query={`MATCH (m:Person)-[link]->(other) WHERE ID(m) = $id 
@@ -241,21 +297,38 @@ function NodeLinks({node}){
         cypherFunction={useReadCypher} >
         {(results2, refresh2) =>
              <>
-              <ul>{results.map((r) => {
-                return <li key={r.get('other').identity.low}>
-                  <LinkChip link={r.get('link')} />
-                  <NodeChip node={r.get('other')} />
-                </li>
-              })}</ul>
-              <ul>{results2.map((r) => {
-                return <li key={r.get('other').identity.low}>
-                  <NodeChip node={r.get('other')} />
-                  <LinkChip link={r.get('link')} />
-                </li>
-              })}</ul>
+              {results.map((r) => {
+                return <div key={r.get('other').identity.low}>
+                  <LinkChip 
+                    to={r.get('other')} 
+                    link={r.get('link')} 
+                    onDelete={()=>{refresh(refresh2)}}
+                    />
+                </div>
+              })}
+              {results2.map((r) => {
+                return <div key={r.get('other').identity.low}>
+                  <LinkChip 
+                    from={r.get('other')}
+                    link={r.get('link')} 
+                    onDelete={()=>{refresh(refresh2)}}
+                    />
+                </div>
+              })}
           </>}
       </QueryComponent>}
   </QueryComponent>
+}
+
+function DeleteLink(props){
+  return <QueryComponent query={`MATCH ()-[doomed]->() WHERE ID(doomed) = $id DELETE doomed return doomed`}
+      params={{ id: props.link.identity.low }}
+      cypherFunction={useWriteCypher}
+    >
+      {(results, refresh) => {
+        return <CloseIcon style={{cursor: "pointer"}} onClick={() => { refresh(props.onDelete); }} />
+      }}
+    </QueryComponent>
 }
 
 function EditNodeProperties(props){
