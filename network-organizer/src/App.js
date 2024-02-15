@@ -9,8 +9,11 @@ import CardContent from '@mui/material/CardContent';
 import Container from '@mui/material/Container';
 import CardHeader from '@mui/material/CardHeader';
 import CardActions from '@mui/material/CardActions';
-import { Avatar, Chip, Grid, Stack, Divider } from '@mui/material';
+import { Avatar, Chip, Grid, Stack, Divider, FormControl, InputLabel, Select, MenuItem, Typography, IconButton, Tab, Tabs, Box } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+
+import {plural} from 'pluralize'
 
 const driver = createDriver('bolt', 'localhost', 7687, 'neo4j', 'Nimzovich101')
 
@@ -32,15 +35,31 @@ let properties = {
   },
 }
 
+function linkTypes(){
+  return ["WorksAt", "WorksFor", "FriendsWith", "BelongsTo", "FriendsWith", "Xyz"] 
+}
+
+function nodeTypes(){
+  return Object.keys(properties)
+}
+
 function App() {
+  let [tab, setTab] = React.useState(0)
+
+  let selectedNodeType = nodeTypes()[tab]
+
   return (
   <React.StrictMode>
     <Neo4jProvider >
     <Container maxWidth="md">
-      <CollectionCard title="People"        type="Person"/>
-      <CollectionCard title="Organizations" type="Organization"/>
-      <CollectionCard title="Divisions"     type="Division"/>
-      <CollectionCard title="Departments"   type="Department"/>
+      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <Tabs value={tab} onChange={(e,v)=>{setTab(v)}} aria-label="basic tabs example">
+          {nodeTypes().map((t, i) => {
+            return <Tab key={t} label={t} />
+          })}
+        </Tabs>
+      </Box>
+      <CollectionCard title={plural(selectedNodeType)} type={selectedNodeType}/>
       <br/>
     </Container>
     </Neo4jProvider>
@@ -68,7 +87,7 @@ function AddNode(props) {
           {(results, refresh) =>
           <>
             {<FieldsForType type={props.type} params={params} setParams={setParams} />}
-            <Button onClick={()=>{refresh();}}>Submit</Button>
+            <Button onClick={()=>{refresh();}}>Save</Button>
           </>
           }
         </QueryComponent>
@@ -80,7 +99,7 @@ function FieldsForType({type, params, setParams}) {
   return <div>
     {Object.keys(fields).map((f) => {
       return <TextField key={f} label={f}
-        variant={"standard"}
+        variant={"outlined"}
         value={params && params[f]}
         onChange={(e) => {
           let newParams = { ...params }
@@ -102,9 +121,9 @@ function LinkChip(props){
     {props.from && <NodeChip node={props.from}/>} 
     <Divider orientation="vertical" variant="middle" flexItem />
     <Chip label={props.link.type} 
-      onDelete={()=>{}}
+      onDelete={!props.hideDelete && (()=>{})}
       variant="outlined"
-      deleteIcon={<DeleteLink link={props.link} onDelete={props.onDelete} />}
+      deleteIcon={!props.hideDelete && <DeleteLink link={props.link} onDelete={props.onDelete} />}
       />
     <Divider orientation="vertical" variant="middle" flexItem />
     {props.to && <NodeChip node={props.to} />}
@@ -132,7 +151,7 @@ function NodeAvatar({node}){
     return color;
   }
 
-  return <Avatar sx={{width: 24, height: 24, bgcolor: stringToColor(node.labels[0])}}>{node.identity.low}</Avatar> 
+  return <Avatar sx={{fontSize: "inherit", width: 24, height: 24, bgcolor: stringToColor(node.labels[0])}}>{node.identity.low}</Avatar> 
 }
 
 function QueryComponent(props){
@@ -191,7 +210,9 @@ function NodeTextItem(props){
 function CollectionCard({title, type}) {
   const [selectedResult, setSelectedResult] = React.useState(undefined)
 
-  return <QueryComponent query={`MATCH (m:${type}) RETURN m`}
+  return <QueryComponent query={`MATCH (m:${type}) RETURN m`
+}
+            params={{type: type}}
     cypherFunction={useReadCypher} >
     {(results, refresh) =>
       <Card>
@@ -202,7 +223,7 @@ function CollectionCard({title, type}) {
               {results.map((r, i) => {
                 let p = r.get('m')
                 return <div style={{ cursor: "pointer" }} onClick={() => setSelectedResult(i)} key={p.identity.low}>
-                  <NodeTextItem node={p} type={type} />
+                  <NodeChip node={p} type={type} />
                 </div>
               })}
             </Grid>
@@ -222,17 +243,28 @@ function NodeCard({node, onEdit}) {
   return <Card>
             <CardHeader title={<NodeChip node={node} />} />
             <CardContent>
-              {/* node.loadedAt.toString() */}
+              <Typography variant="h6">Properties</Typography>
               <EditNodeProperties node={node} onEdit={onEdit} />
+              <Divider 
+                variant="middle" 
+                style={{margin: "10px 0"}} 
+              />
+              <Typography variant="h6">Links</Typography>
               <NodeLinks node={node} />
+              <Divider 
+                variant="middle" 
+                style={{margin: "10px 0"}} 
+              />
+              <Typography variant="h6">Add Link</Typography>
               <AddLinkToNode node={node} onAdd={onEdit} />
             </CardContent>
           </Card>
 }
 
-function AddLinkToNode(props){
+function AddLinkToNode(props) {
   const [other, setOther] = React.useState(undefined)
   const [linkType, setLinkType] = React.useState(undefined)
+  const [nodeType, setNodeType] = React.useState(undefined)
 
   return (
     <QueryComponent
@@ -244,20 +276,55 @@ function AddLinkToNode(props){
       onRefresh={props.onAdd}
     >
       {(results, refresh) =>
-      <>
-        <TextField label="Link Type"
-          variant={"standard"}
-          value={linkType}
-          onChange={(e) => {
-            setLinkType(e.target.value)
-          }} />
-        <NodeSearchSelect 
-          type="Organization"
-          onSelect={(node) => { 
-          setOther(node)
-        }} />
-        {<Button onClick={()=>{refresh();}}>Submit {other && other.identity.low + " " + other.loadedAt}</Button>}
-      </>
+        <>
+          <br/>
+          <FormControl fullWidth>
+            <InputLabel id="demo-simple-select-label">Link Type</InputLabel>
+                <Select
+                  value={linkType}
+                  label="Link Type"
+                  onChange={(e) => { setLinkType(e.target.value) }}
+                >
+                  {linkTypes().map((r) => {
+                    return <MenuItem key={r}
+                      value={r}
+                    >{r}</MenuItem>
+                  })}
+                </Select>
+          </FormControl>
+          <br/>
+          <br/>
+          <FormControl fullWidth>
+            <InputLabel>Node Type</InputLabel>
+                <Select
+                  value={nodeType}
+                  label="Node Type"
+                  onChange={(e) => { setNodeType(e.target.value); setOther(undefined) }}
+                >
+                  {nodeTypes().map((r) => {
+                    return <MenuItem key={r}
+                      value={r}
+                    >{r}</MenuItem>
+                  })}
+                </Select>
+          </FormControl>
+          {nodeType && !other && <NodeSearchSelect
+            type={nodeType}
+            onSelect={(node) => {
+              setOther(node)
+            }} />}
+
+         {other && linkType && 
+         <><br/><br/><LinkChip 
+                    to={other} 
+                    link={{type: linkType, identity: {low: -1}}}
+                    onDelete={()=>{}}
+                    hideDelete={true}
+                    /></>}
+          {other && linkType && <Button onClick={() => {
+            refresh();
+          }}>Save</Button>}
+        </>
       }
     </QueryComponent>
   )
@@ -266,7 +333,7 @@ function AddLinkToNode(props){
 function NodeSearchSelect(props){
  return <QueryComponent
       query={`MATCH (m:${props.type}) RETURN m`}
-      params={{}}
+      params={{type: props.type}}
       cypherFunction={useReadCypher}
     >
       {(results, refresh) =>
@@ -284,13 +351,13 @@ function NodeSearchSelect(props){
 }
 
 function NodeLinks({node}){
-  return <QueryComponent query={`MATCH (m:Person)-[link]->(other) WHERE ID(m) = $id 
+  return <QueryComponent query={`MATCH (m)-[link]->(other) WHERE ID(m) = $id 
                                  RETURN link, other`}
                          params={{ id: node.identity.low }}
                          refreshOnChange={node}
     cypherFunction={useReadCypher} >
     {(results, refresh) =>
-      <QueryComponent query={`MATCH (m:Person)<-[link]-(other) WHERE ID(m) = $id 
+      <QueryComponent query={`MATCH (m)<-[link]-(other) WHERE ID(m) = $id 
                                     RETURN link, other`}
                       params={{ id: node.identity.low }}
                       refreshOnChange={node}
