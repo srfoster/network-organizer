@@ -20,7 +20,8 @@ const driver = createDriver('bolt', 'localhost', 7687, 'neo4j', 'Nimzovich101')
 let properties = {
   Person: {
     first: "string",
-    last: "string"
+    last: "string",
+    image_url: "string"
   },
   Organization: {
     name: "string"
@@ -33,10 +34,21 @@ let properties = {
     name: "string",
     short_name: "string"
   },
+  Team: {
+    name: "string",
+    short_name: "string"
+  },
+  JobTitle: {
+    name: "string",
+    short_name: "string"
+  },
+  Note: {
+    content: "string",
+  },
 }
 
 function linkTypes(){
-  return ["WorksAt", "WorksFor", "FriendsWith", "BelongsTo", "FriendsWith", "Xyz"] 
+  return ["WorksAt", "WorksFor", "BelongsTo", "Has", "FriendsWith", "RefersTo", "ReportsTo", "Xyz"] 
 }
 
 function nodeTypes(){
@@ -100,7 +112,7 @@ function FieldsForType({type, params, setParams}) {
     {Object.keys(fields).map((f) => {
       return <TextField key={f} label={f}
         variant={"outlined"}
-        value={params && params[f]}
+        value={params && params[f] ? params[f] : ""}
         onChange={(e) => {
           let newParams = { ...params }
           newParams[f] = e.target.value
@@ -204,7 +216,10 @@ function NodeTextItem(props){
     return <>{props.node.properties.first} {props.node.properties.last}</>
   } else if(props.node.properties.name){
     return <>{props.node.properties.name}</>
-  } else return <>{JSON.stringify(props.node.properties)}</>
+  } else if(props.node.properties.content){
+    return <>{props.node.properties.content.substring(0,20)+"..."}</>
+  }
+  else return <>{JSON.stringify(props.node.properties)}</>
 }
 
 function CollectionCard({title, type}) {
@@ -228,7 +243,7 @@ function CollectionCard({title, type}) {
               })}
             </Grid>
             <Grid item xs={6}>
-              {selectedResult !== undefined ? <NodeCard node={results[selectedResult].get('m')} onEdit={refresh} /> : ""}
+              {selectedResult !== undefined && results[selectedResult] ? <NodeCard node={results[selectedResult].get('m')} onEdit={refresh} /> : ""}
             </Grid>
           </Grid>
         </CardContent>
@@ -243,6 +258,7 @@ function NodeCard({node, onEdit}) {
   return <Card>
             <CardHeader title={<NodeChip node={node} />} />
             <CardContent>
+              {node.properties.image_url && <img src={node.properties.image_url} style={{maxWidth: "100%"}} />}
               <Typography variant="h6">Properties</Typography>
               <EditNodeProperties node={node} onEdit={onEdit} />
               <Divider 
@@ -408,7 +424,7 @@ function EditNodeProperties(props){
 
   return <>
     <QueryComponent
-          query={`MATCH (m) WHERE ID(m) = ${props.node.identity.low} SET m = ${propertiesToCypherBindings(params)} RETURN m`}
+          query={`MATCH (m) WHERE ID(m) = ${props.node.identity.low} SET m = ${propertiesToCypherBindings(properties[props.node.labels[0]])} RETURN m`}
           params={newParams}
           cypherFunction={useWriteCypher}
         >
