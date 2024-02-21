@@ -43,7 +43,7 @@ let properties = {
     short_name: "string"
   },
   Note: {
-    content: "string",
+    content: "text",
   },
 }
 
@@ -55,25 +55,36 @@ function nodeTypes(){
   return Object.keys(properties)
 }
 
+const ChipSelectionContext = React.createContext({id: undefined, selectedChip: undefined, setSelectedChip: undefined});
+
+
 function App() {
   let [tab, setTab] = React.useState(0)
+  let [selectedChip, setSelectedChip] = React.useState(undefined)
 
   let selectedNodeType = nodeTypes()[tab]
 
   return (
   <React.StrictMode>
     <Neo4jProvider >
-    <Container maxWidth="md">
-      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs value={tab} onChange={(e,v)=>{setTab(v)}} aria-label="basic tabs example">
-          {nodeTypes().map((t, i) => {
-            return <Tab key={t} label={t} />
-          })}
-        </Tabs>
-      </Box>
-      <CollectionCard title={plural(selectedNodeType)} type={selectedNodeType}/>
-      <br/>
-    </Container>
+    <ChipSelectionContext.Provider value={{id: undefined, selectedChip, setSelectedChip}}>
+      {selectedChip && <NodeChip node={selectedChip} onClick={()=>{
+        setTab(nodeTypes().indexOf(selectedChip.labels[0]) )
+      }} />}
+      <Container maxWidth="md">
+        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Tabs value={tab} onChange={(e,v)=>{setTab(v)}} aria-label="basic tabs example">
+            {nodeTypes().map((t, i) => {
+              return <Tab key={t} label={t} />
+            })}
+          </Tabs>
+        </Box>
+        <CollectionCard title={plural(selectedNodeType)} type={selectedNodeType}
+        selectedNode={selectedChip}
+        />
+        <br/>
+      </Container>
+    </ChipSelectionContext.Provider>
     </Neo4jProvider>
   </React.StrictMode>
   );
@@ -112,6 +123,8 @@ function FieldsForType({type, params, setParams}) {
     {Object.keys(fields).map((f) => {
       return <TextField key={f} label={f}
         variant={"outlined"}
+        multiline={fields[f] == "text"}
+        rows={fields[f] == "text" ? 4 : 1}
         value={params && params[f] ? params[f] : ""}
         onChange={(e) => {
           let newParams = { ...params }
@@ -123,9 +136,14 @@ function FieldsForType({type, params, setParams}) {
 }
 
 function NodeChip(props){
-  return <Chip 
-    avatar={<NodeAvatar node={props.node} />}
-    label={<NodeTextItem node={props.node} />} />
+  return <ChipSelectionContext.Consumer>
+    {({id, selectedChip, setSelectedChip}) => {
+       return <Chip 
+        onClick={props.onClick || (() => { setSelectedChip(props.node) })}
+        avatar={<NodeAvatar node={props.node} />}
+        label={<NodeTextItem node={props.node} />} />
+    }}
+  </ChipSelectionContext.Consumer> 
 }
 
 function LinkChip(props){
@@ -222,7 +240,7 @@ function NodeTextItem(props){
   else return <>{JSON.stringify(props.node.properties)}</>
 }
 
-function CollectionCard({title, type}) {
+function CollectionCard({title, type, selectedNode}) {
   const [selectedResult, setSelectedResult] = React.useState(undefined)
 
   return <QueryComponent query={`MATCH (m:${type}) RETURN m`
@@ -243,7 +261,7 @@ function CollectionCard({title, type}) {
               })}
             </Grid>
             <Grid item xs={6}>
-              {selectedResult !== undefined && results[selectedResult] ? <NodeCard node={results[selectedResult].get('m')} onEdit={refresh} /> : ""}
+              {selectedNode && selectedNode.labels[0] == type ? <NodeCard node={selectedNode} onEdit={refresh} /> : selectedResult !== undefined && results[selectedResult] ? <NodeCard node={results[selectedResult].get('m')} onEdit={refresh} /> : ""}
             </Grid>
           </Grid>
         </CardContent>
